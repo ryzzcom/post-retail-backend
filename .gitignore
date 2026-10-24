@@ -1,0 +1,30 @@
+# Node & Build Outputs
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Environment & Secret Files (Strictly Local)
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+.env.example
+
+# AI Governance & Context Memory (Internal Only)
+context/
+/context/
+AGENT.md
+agent.md
+AGENTS.md
+
+# Logs & System Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

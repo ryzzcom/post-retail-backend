@@ -1,0 +1,466 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id              String           @id @default(uuid())
+  name            String
+  code            String           @unique
+  phone           String?
+  address         String?
+  currency        String           @default("PKR")
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  slug            String           @unique
+  auditLogs       AuditLog[]
+  cashierProfiles CashierProfile[]
+  cashierShifts   CashierShift[]
+  categories      Category[]
+  counters        Counter[]
+  customers       Customer[]
+  expenses        Expense[]
+  heldBills       HeldBill[]
+  khataLedgers    KhataLedger[]
+  orderItems      OrderItem[]
+  orders          Order[]
+  payments        Payment[]
+  productVariants ProductVariant[]
+  products        Product[]
+  stockMovements  StockMovement[]
+  inventory       StoreInventory[]
+  users           User[]
+
+  @@map("stores")
+}
+
+model Counter {
+  id              String           @id @default(uuid())
+  storeId         String
+  name            String
+  code            String
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  cashierProfiles CashierProfile[]
+  shifts          CashierShift[]
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  heldBills       HeldBill[]
+  orders          Order[]
+
+  @@unique([storeId, code])
+  @@index([storeId])
+  @@map("counters")
+}
+
+model User {
+  id              String           @id @default(uuid())
+  storeId         String
+  email           String           @unique
+  passwordHash    String
+  role            Role             @default(CASHIER)
+  firstName       String?
+  lastName        String?
+  phone           String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  fullName        String
+  isEmailVerified Boolean          @default(false)
+  otpCode         String?
+  otpExpiresAt    DateTime?
+  auditLogs       AuditLog[]
+  cashierProfiles CashierProfile[]
+  cashierShifts   CashierShift[]
+  expenses        Expense[]
+  heldBills       HeldBill[]
+  orders          Order[]
+  stockMovements  StockMovement[]
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, role])
+  @@map("users")
+}
+
+model CashierProfile {
+  id                String   @id @default(uuid())
+  storeId           String
+  userId            String?
+  pinHash           String
+  maxDiscountPct    Int      @default(10)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  assignedCounterId String?
+  displayName       String
+  isActive          Boolean  @default(true)
+  role              Role     @default(CASHIER)
+  assignedCounter   Counter? @relation(fields: [assignedCounterId], references: [id])
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user              User?    @relation(fields: [userId], references: [id])
+
+  @@index([storeId])
+  @@map("cashier_profiles")
+}
+
+model Category {
+  id             String     @id @default(uuid())
+  storeId        String
+  name           String
+  description    String?
+  parentId       String?
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  parentCategory Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  subCategories  Category[] @relation("CategoryHierarchy")
+  store          Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products       Product[]
+
+  @@index([storeId])
+  @@index([storeId, parentId])
+  @@map("categories")
+}
+
+model Product {
+  id          String           @id @default(uuid())
+  storeId     String
+  categoryId  String?
+  name        String
+  description String?
+  barcode     String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    ProductVariant[]
+  category    Category?        @relation(fields: [categoryId], references: [id])
+  store       Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, categoryId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id             String           @id @default(uuid())
+  storeId        String
+  productId      String
+  sku            String
+  barcode        String?
+  costPrice      BigInt
+  retailPrice    BigInt
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  orderItems     OrderItem[]
+  product        Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store          Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+  inventory      StoreInventory[]
+
+  @@unique([storeId, sku])
+  @@index([storeId])
+  @@index([storeId, productId])
+  @@index([storeId, barcode])
+  @@map("product_variants")
+}
+
+model StoreInventory {
+  id                String         @id @default(uuid())
+  storeId           String
+  variantId         String
+  quantityOnHand    Int            @default(0)
+  lowStockThreshold Int            @default(10)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  store             Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant           ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, variantId])
+  @@index([storeId])
+  @@index([storeId, variantId])
+  @@map("store_inventory")
+}
+
+model StockMovement {
+  id                String            @id @default(uuid())
+  storeId           String
+  variantId         String
+  type              StockMovementType
+  quantity          Int
+  referenceNo       String?
+  reason            String?
+  performedByUserId String?
+  createdAt         DateTime          @default(now())
+  performedBy       User?             @relation(fields: [performedByUserId], references: [id])
+  store             Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant           ProductVariant    @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, variantId])
+  @@map("stock_movements")
+}
+
+model CashierShift {
+  id            String      @id @default(uuid())
+  storeId       String
+  counterId     String
+  cashierId     String
+  openingFloat  BigInt
+  expectedCash  BigInt      @default(0)
+  actualCash    BigInt?
+  overShortDiff BigInt?
+  status        ShiftStatus @default(OPEN)
+  openedAt      DateTime    @default(now())
+  closedAt      DateTime?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  cashier       User        @relation(fields: [cashierId], references: [id], onDelete: Cascade)
+  counter       Counter     @relation(fields: [counterId], references: [id], onDelete: Cascade)
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  expenses      Expense[]
+  orders        Order[]
+
+  @@index([storeId])
+  @@index([storeId, counterId])
+  @@index([storeId, cashierId])
+  @@index([storeId, status])
+  @@map("cashier_shifts")
+}
+
+model Order {
+  id             String        @id @default(uuid())
+  storeId        String
+  counterId      String
+  shiftId        String?
+  cashierId      String
+  customerId     String?
+  receiptNo      String        @unique
+  subtotal       BigInt
+  discount       BigInt        @default(0)
+  grandTotal     BigInt
+  idempotencyKey String        @unique
+  status         OrderStatus   @default(COMPLETED)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  khataLedgers   KhataLedger[]
+  items          OrderItem[]
+  cashier        User          @relation(fields: [cashierId], references: [id], onDelete: Cascade)
+  counter        Counter       @relation(fields: [counterId], references: [id], onDelete: Cascade)
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  shift          CashierShift? @relation(fields: [shiftId], references: [id])
+  store          Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  payments       Payment[]
+
+  @@index([storeId])
+  @@index([storeId, counterId])
+  @@index([storeId, shiftId])
+  @@index([storeId, customerId])
+  @@index([storeId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String         @id @default(uuid())
+  storeId   String
+  orderId   String
+  variantId String
+  quantity  Int
+  unitPrice BigInt
+  subtotal  BigInt
+  discount  BigInt         @default(0)
+  total     BigInt
+  createdAt DateTime       @default(now())
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store     Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, orderId])
+  @@index([storeId, variantId])
+  @@map("order_items")
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  storeId     String
+  orderId     String
+  method      PaymentMethod
+  amount      BigInt
+  referenceNo String?
+  createdAt   DateTime      @default(now())
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, orderId])
+  @@index([storeId, method])
+  @@map("payments")
+}
+
+model HeldBill {
+  id            String         @id @default(uuid())
+  storeId       String
+  counterId     String
+  cashierId     String
+  customerId    String?
+  referenceNote String?
+  billData      Json
+  status        HeldBillStatus @default(HELD)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  cashier       User           @relation(fields: [cashierId], references: [id], onDelete: Cascade)
+  counter       Counter        @relation(fields: [counterId], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, counterId])
+  @@index([storeId, cashierId])
+  @@index([storeId, status])
+  @@map("held_bills")
+}
+
+model Customer {
+  id                  String        @id @default(uuid())
+  storeId             String
+  name                String
+  phone               String
+  email               String?
+  creditLimit         BigInt        @default(0)
+  currentKhataBalance BigInt        @default(0)
+  loyaltyPoints       Int           @default(0)
+  isActive            Boolean       @default(true)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  store               Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  heldBills           HeldBill[]
+  khataLedgers        KhataLedger[]
+  orders              Order[]
+
+  @@unique([storeId, phone])
+  @@index([storeId])
+  @@index([storeId, phone])
+  @@map("customers")
+}
+
+model KhataLedger {
+  id             String               @id @default(uuid())
+  storeId        String
+  customerId     String
+  orderId        String?
+  type           KhataTransactionType
+  amount         BigInt
+  runningBalance BigInt
+  referenceNo    String?
+  notes          String?
+  createdAt      DateTime             @default(now())
+  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order          Order?               @relation(fields: [orderId], references: [id])
+  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, customerId])
+  @@index([storeId, orderId])
+  @@map("khata_ledgers")
+}
+
+model Expense {
+  id               String               @id @default(uuid())
+  storeId          String
+  shiftId          String?
+  category         String
+  expenseAmount    BigInt
+  description      String?
+  paymentMethod    ExpensePaymentMethod @default(CASH)
+  recordedByUserId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  recordedBy       User?                @relation(fields: [recordedByUserId], references: [id])
+  shift            CashierShift?        @relation(fields: [shiftId], references: [id])
+  store            Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, shiftId])
+  @@map("expenses")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  storeId   String
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([storeId])
+  @@index([storeId, userId])
+  @@index([storeId, action])
+  @@index([storeId, entity])
+  @@map("audit_logs")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+  RECONCILED
+}
+
+enum OrderStatus {
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  KHATA
+  SPLIT
+}
+
+enum HeldBillStatus {
+  HELD
+  RESUMED
+  VOIDED
+}
+
+enum KhataTransactionType {
+  DEBIT_PURCHASE
+  CREDIT_PAYMENT
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN
+  DAMAGE
+  SALE
+}
+
+enum ExpensePaymentMethod {
+  CASH
+  BANK
+  OTHER
+}
