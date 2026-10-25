@@ -15,6 +15,7 @@ import { ShiftsModule } from '@modules/shifts/shifts.module';
 import { CustomersModule } from '@modules/customers/customers.module';
 import { KhataModule } from '@modules/khata/khata.module';
 import { FinanceModule } from '@modules/finance/finance.module';
+import { DashboardModule } from '@modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { FinanceModule } from '@modules/finance/finance.module';
     CustomersModule,
     KhataModule,
     FinanceModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [],
