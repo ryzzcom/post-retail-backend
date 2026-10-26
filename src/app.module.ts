@@ -16,6 +16,7 @@ import { CustomersModule } from '@modules/customers/customers.module';
 import { KhataModule } from '@modules/khata/khata.module';
 import { FinanceModule } from '@modules/finance/finance.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
+import { SalesModule } from '@modules/sales/sales.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { DashboardModule } from '@modules/dashboard/dashboard.module';
     KhataModule,
     FinanceModule,
     DashboardModule,
+    SalesModule,
   ],
   controllers: [AppController],
   providers: [],
