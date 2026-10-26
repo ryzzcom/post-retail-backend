@@ -17,10 +17,15 @@ export class StocktakeItemDto {
   @IsNotEmpty()
   @IsInt()
   @Min(0)
-  countedQuantity: number;
+  @Type(() => Number)
+  countedQty: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
-export class StocktakeDto {
+export class BulkStocktakeDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StocktakeItemDto)
@@ -28,5 +33,5 @@ export class StocktakeDto {
 
   @IsOptional()
   @IsString()
-  notes?: string;
+  referenceNote?: string;
 }

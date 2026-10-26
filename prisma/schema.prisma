@@ -129,21 +129,30 @@ model Category {
 }
 
 model Product {
-  id          String           @id @default(uuid())
-  storeId     String
-  categoryId  String?
-  name        String
-  description String?
-  barcode     String?
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  variants    ProductVariant[]
-  category    Category?        @relation(fields: [categoryId], references: [id])
-  store       Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id              String           @id @default(uuid())
+  storeId         String
+  categoryId      String?
+  name            String
+  description     String?
+  barcode         String?
+  styleCode       String?
+  subCategory     String?
+  brand           String?
+  season          String?
+  minSellingPrice BigInt           @default(0)
+  imageUrl        String?
+  handle          String?
+  isArchived      Boolean          @default(false)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  variants        ProductVariant[]
+  category        Category?        @relation(fields: [categoryId], references: [id])
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
   @@index([storeId, categoryId])
+  @@index([storeId, handle])
   @@map("products")
 }
 
@@ -153,8 +162,11 @@ model ProductVariant {
   productId      String
   sku            String
   barcode        String?
+  size           String?
+  color          String?
   costPrice      BigInt
   retailPrice    BigInt
+  reorderLevel   Int              @default(3)
   isActive       Boolean          @default(true)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -194,8 +206,11 @@ model StockMovement {
   variantId         String
   type              StockMovementType
   quantity          Int
+  previousQty       Int?
+  newQty            Int?
   referenceNo       String?
   reason            String?
+  note              String?
   performedByUserId String?
   createdAt         DateTime          @default(now())
   performedBy       User?             @relation(fields: [performedByUserId], references: [id])
@@ -204,6 +219,7 @@ model StockMovement {
 
   @@index([storeId])
   @@index([storeId, variantId])
+  @@index([storeId, createdAt])
   @@map("stock_movements")
 }
 
@@ -465,14 +481,16 @@ enum KhataTransactionType {
 }
 
 enum StockMovementType {
-  IN
-  OUT
+  OPENING_STOCK
+  SALE
+  RETURN
   ADJUSTMENT
+  STOCKTAKE
+  DAMAGE
   TRANSFER_IN
   TRANSFER_OUT
-  RETURN
-  DAMAGE
-  SALE
+  IN
+  OUT
 }
 
 enum ExpensePaymentMethod {

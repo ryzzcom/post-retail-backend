@@ -1,18 +1,23 @@
 import {
+  IsArray,
+  IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
-  IsArray,
-  ValidateNested,
-  IsNumber,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class CreateVariantDto {
-  @IsNotEmpty()
+export class CreateProductVariantDto {
+  @IsOptional()
   @IsString()
-  name: string;
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -24,11 +29,25 @@ export class CreateVariantDto {
 
   @IsNumber()
   @Min(0)
-  costPrice: number; // In standard PKR rupees (converted internally to BigInt paisas)
+  @Type(() => Number)
+  costPrice: number; // in standard PKR rupees
 
   @IsNumber()
   @Min(0)
-  retailPrice: number; // In standard PKR rupees (converted internally to BigInt paisas)
+  @Type(() => Number)
+  retailPrice: number; // in standard PKR rupees
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  openingStock: number = 0;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  reorderLevel: number = 3;
 }
 
 export class CreateProductDto {
@@ -38,19 +57,43 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  styleCode?: string;
+
+  @IsOptional()
+  @IsString()
   categoryId?: string;
 
   @IsOptional()
   @IsString()
-  description?: string;
+  categoryName?: string;
 
   @IsOptional()
   @IsString()
-  barcode?: string;
+  subCategory?: string;
 
   @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @IsOptional()
+  @IsString()
+  season?: string;
+
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  minSellingPrice: number; // in standard PKR rupees
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  handle?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateVariantDto)
-  variants?: CreateVariantDto[];
+  @Type(() => CreateProductVariantDto)
+  variants: CreateProductVariantDto[];
 }
