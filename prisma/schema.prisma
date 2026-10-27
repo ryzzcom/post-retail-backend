@@ -40,6 +40,7 @@ model Store {
   purchaseOrders  PurchaseOrder[]
   supplierPayments SupplierPayment[]
   supplierLedgers SupplierLedger[]
+  pointsLedgers   PointsLedger[]
 
   @@map("stores")
 }
@@ -87,6 +88,7 @@ model User {
   orders          Order[]
   stockMovements  StockMovement[]
   supplierPayments SupplierPayment[]
+  pointsAdjustments PointsLedger[]
   store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
@@ -284,6 +286,7 @@ model Order {
   shift           CashierShift?  @relation(fields: [shiftId], references: [id])
   store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   payments        Payment[]
+  pointsLedgers   PointsLedger[]
 
   @@index([storeId])
   @@index([storeId, counterId])
@@ -357,25 +360,36 @@ model HeldBill {
 }
 
 model Customer {
-  id                  String        @id @default(uuid())
-  storeId             String
-  name                String
-  phone               String
-  email               String?
-  creditLimit         BigInt        @default(0)
-  currentKhataBalance BigInt        @default(0)
-  loyaltyPoints       Int           @default(0)
-  isActive            Boolean       @default(true)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  store               Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  heldBills           HeldBill[]
-  khataLedgers        KhataLedger[]
-  orders              Order[]
+  id                    String         @id @default(uuid())
+  storeId               String
+  name                  String
+  phone                 String
+  email                 String?
+  styleTags             String?
+  tier                  CustomerTier   @default(REGULAR)
+  creditLimit           BigInt         @default(5000000)
+  currentKhataBalance   BigInt         @default(0)
+  loyaltyPoints         Int            @default(0)
+  lifetimeSpend         BigInt         @default(0)
+  lastVisitAt           DateTime?
+  city                  String?        @default("Lahore")
+  address               String?
+  styleNotes            String?
+  whatsappReceiptsOptIn Boolean        @default(true)
+  acceptsPromotions     Boolean        @default(true)
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  store                 Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  heldBills             HeldBill[]
+  khataLedgers          KhataLedger[]
+  orders                Order[]
+  pointsLedger          PointsLedger[]
 
   @@unique([storeId, phone])
   @@index([storeId])
   @@index([storeId, phone])
+  @@index([storeId, tier])
   @@map("customers")
 }
 
@@ -646,4 +660,40 @@ enum SupplierLedgerType {
   OPENING_BALANCE
   ADJUSTMENT
 }
+
+enum CustomerTier {
+  REGULAR
+  SILVER
+  GOLD
+}
+
+enum PointsTransactionType {
+  EARNED
+  REDEEMED
+  MANUAL_ADJUSTMENT
+  TIER_BONUS
+}
+
+model PointsLedger {
+  id           String                @id @default(uuid())
+  storeId      String
+  customerId   String
+  orderId      String?
+  pointsChange Int
+  type         PointsTransactionType
+  title        String
+  description  String?
+  createdById  String?
+  createdAt    DateTime              @default(now())
+  store        Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer     Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order        Order?                @relation(fields: [orderId], references: [id])
+  createdBy    User?                 @relation(fields: [createdById], references: [id])
+
+  @@index([storeId])
+  @@index([storeId, customerId])
+  @@index([storeId, createdAt])
+  @@map("points_ledgers")
+}
+
 
