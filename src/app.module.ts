@@ -18,6 +18,7 @@ import { FinanceModule } from '@modules/finance/finance.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { SalesModule } from '@modules/sales/sales.module';
 import { PurchasesModule } from '@modules/purchases/purchases.module';
+import { LoyaltyModule } from '@modules/loyalty/loyalty.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { PurchasesModule } from '@modules/purchases/purchases.module';
     DashboardModule,
     SalesModule,
     PurchasesModule,
+    LoyaltyModule,
   ],
   controllers: [AppController],
   providers: [],

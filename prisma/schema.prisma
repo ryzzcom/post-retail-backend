@@ -41,6 +41,8 @@ model Store {
   supplierPayments SupplierPayment[]
   supplierLedgers SupplierLedger[]
   pointsLedgers   PointsLedger[]
+  loyaltyConfig   LoyaltyConfig?
+  coupons         Coupon[]
 
   @@map("stores")
 }
@@ -670,8 +672,16 @@ enum CustomerTier {
 enum PointsTransactionType {
   EARNED
   REDEEMED
+  REFERRAL
   MANUAL_ADJUSTMENT
   TIER_BONUS
+  RETURN_REVERSAL
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
 }
 
 model PointsLedger {
@@ -683,6 +693,8 @@ model PointsLedger {
   type         PointsTransactionType
   title        String
   description  String?
+  refereeName  String?
+  refereePhone String?
   createdById  String?
   createdAt    DateTime              @default(now())
   store        Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -695,5 +707,57 @@ model PointsLedger {
   @@index([storeId, createdAt])
   @@map("points_ledgers")
 }
+
+model LoyaltyConfig {
+  id                    String   @id @default(uuid())
+  storeId               String   @unique
+  isActive              Boolean  @default(true)
+  spendPerPoint         BigInt   @default(10000)
+  pointValue            BigInt   @default(100)
+  minBillToRedeem       BigInt   @default(100000)
+  minPointsToRedeem     Int      @default(100)
+  maxPointsPerBill      Int      @default(1000)
+  maxBillPayablePct     Int      @default(20)
+  pointsExpiryMonths    Int      @default(12)
+  silverTierThreshold   BigInt   @default(4000000)
+  goldTierThreshold     BigInt   @default(15000000)
+  reversePointsOnReturn Boolean  @default(false)
+  referralBonusPoints   Int      @default(300)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  store                 Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("loyalty_configs")
+}
+
+model Coupon {
+  id                 String     @id @default(uuid())
+  storeId            String
+  code               String
+  type               CouponType @default(PERCENTAGE)
+  title              String
+  description        String
+  discountPct        Int?
+  discountAmount     BigInt     @default(0)
+  maxDiscountAmount  BigInt     @default(0)
+  minBillAmount      BigInt     @default(0)
+  usesPerCustomer    Int        @default(1)
+  totalUsesLimit     Int        @default(0)
+  usedCount          Int        @default(0)
+  totalDiscountGiven BigInt     @default(0)
+  startsAt           DateTime
+  endsAt             DateTime?
+  eligibleCategories String[]
+  firstPurchaseOnly  Boolean    @default(false)
+  isActive           Boolean    @default(true)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  store              Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, code])
+  @@index([storeId, isActive])
+  @@map("coupons")
+}
+
 
 
