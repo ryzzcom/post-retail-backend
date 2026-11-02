@@ -13,7 +13,7 @@ import {
   PaymentMethod,
   ShiftStatus,
   KhataTransactionType,
-  ExpensePaymentMethod,
+  ExpensePaidFrom,
 } from '@prisma/client';
 
 @Injectable()
@@ -120,7 +120,7 @@ export class DashboardService {
           createdAt: { gte: startDate, lte: endDate },
         },
         _sum: {
-          expenseAmount: true,
+          amount: true,
         },
       }),
     ]);
@@ -158,7 +158,7 @@ export class DashboardService {
     const grossMarginPct =
       netSales > 0 ? Number(((grossProfit / netSales) * 100).toFixed(1)) : 0;
 
-    const expensesPaisa = expenses._sum.expenseAmount ?? 0n;
+    const expensesPaisa = expenses._sum.amount ?? 0n;
     const expensesRupees = paisaToRupees(expensesPaisa);
     const estimatedOperatingProfit = Number(
       (grossProfit - expensesRupees).toFixed(2),
@@ -341,9 +341,9 @@ export class DashboardService {
         this.prisma.expense.aggregate({
           where: {
             storeId,
-            paymentMethod: ExpensePaymentMethod.BANK,
+            paidFrom: ExpensePaidFrom.BANK,
           },
-          _sum: { expenseAmount: true },
+          _sum: { paidAmount: true },
         }),
 
         // Customers who owe money (currentKhataBalance > 0)
@@ -370,7 +370,7 @@ export class DashboardService {
 
     // Digital bank settlement balance
     const digitalIn = cardPayments._sum.amount ?? 0n;
-    const digitalOut = bankExpenses._sum.expenseAmount ?? 0n;
+    const digitalOut = bankExpenses._sum.paidAmount ?? 0n;
     const bankBalancePaisa = digitalIn > digitalOut ? digitalIn - digitalOut : 0n;
 
     const customersOwePaisa = khataSum._sum.currentKhataBalance ?? 0n;

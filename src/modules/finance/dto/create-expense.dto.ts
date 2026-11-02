@@ -4,29 +4,63 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsBoolean,
   Min,
 } from 'class-validator';
-import { ExpensePaymentMethod } from '@prisma/client';
+import { ExpensePaidFrom, ExpensePaymentStatus } from '@prisma/client';
 
 export class CreateExpenseDto {
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
-  shiftId?: string;
+  title: string;
 
   @IsNotEmpty()
   @IsString()
   category: string;
 
   @IsNotEmpty()
+  @IsString()
+  vendorName: string;
+
+  @IsNotEmpty()
   @IsNumber()
   @Min(0.01)
-  expenseAmount: number; // PKR Rupees
+  amount: number; // PKR Rupees
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  paidAmount?: number; // PKR Rupees
+
+  @IsNotEmpty()
+  @IsEnum(ExpensePaymentStatus)
+  paymentStatus: ExpensePaymentStatus; // PAID | PARTIAL | UNPAID
+
+  @IsOptional()
+  @IsEnum(ExpensePaidFrom)
+  paidFrom?: ExpensePaidFrom; // CASH_DRAWER | BANK | PETTY_CASH | NOT_PAID
 
   @IsOptional()
   @IsString()
-  description?: string;
+  expenseDate?: string;
 
   @IsOptional()
-  @IsEnum(ExpensePaymentMethod)
-  paymentMethod?: ExpensePaymentMethod;
+  @IsString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  referenceNo?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  repeatsMonthly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  shiftId?: string;
 }

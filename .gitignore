@@ -1,10 +1,11 @@
-# Node & Build Outputs
+# Dependencies & Build
 node_modules/
 dist/
 build/
-*.tsbuildinfo
+.next/
+out/
 
-# Environment & Secret Files (Strictly Local)
+# Environment Variables (Strictly Private)
 .env
 .env.*
 .env.local
@@ -12,19 +13,23 @@ build/
 .env.production
 .env.example
 
-# AI Governance & Context Memory (Internal Only)
+# AI Governance & Context Memory (Strictly Internal)
 context/
 /context/
 AGENT.md
 agent.md
 AGENTS.md
 
-# Logs & System Files
-*.log
+# OS & IDE Cache
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+*.tsbuildinfo
+
+# Local Postman collections
+postman/
+/postman/

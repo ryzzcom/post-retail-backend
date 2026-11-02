@@ -8,7 +8,7 @@ import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { rupeesToPaisa } from '@core/utils/currency-paisa.util';
-import { ShiftStatus, PaymentMethod } from '@prisma/client';
+import { ShiftStatus, PaymentMethod, ExpensePaidFrom } from '@prisma/client';
 
 @Injectable()
 export class ShiftsService {
@@ -73,13 +73,14 @@ export class ShiftsService {
         where: {
           storeId,
           shiftId: shift.id,
+          paidFrom: ExpensePaidFrom.CASH_DRAWER,
         },
-        _sum: { expenseAmount: true },
+        _sum: { paidAmount: true },
       }),
     ]);
 
     const cashCollected = cashOrders._sum.amount || 0n;
-    const cashPaidOut = cashExpenses._sum.expenseAmount || 0n;
+    const cashPaidOut = cashExpenses._sum.paidAmount || 0n;
     const currentExpectedCash = shift.openingFloat + cashCollected - cashPaidOut;
 
     return {
@@ -118,13 +119,14 @@ export class ShiftsService {
         where: {
           storeId,
           shiftId,
+          paidFrom: ExpensePaidFrom.CASH_DRAWER,
         },
-        _sum: { expenseAmount: true },
+        _sum: { paidAmount: true },
       }),
     ]);
 
     const cashCollected = cashOrders._sum.amount || 0n;
-    const cashPaidOut = cashExpenses._sum.expenseAmount || 0n;
+    const cashPaidOut = cashExpenses._sum.paidAmount || 0n;
     const expectedCash = shift.openingFloat + cashCollected - cashPaidOut;
     const actualCashPaisa = rupeesToPaisa(dto.actualCash);
     const overShortDiff = actualCashPaisa - expectedCash;

@@ -417,21 +417,32 @@ model KhataLedger {
 }
 
 model Expense {
-  id               String               @id @default(uuid())
-  storeId          String
-  shiftId          String?
-  category         String
-  expenseAmount    BigInt
-  description      String?
-  paymentMethod    ExpensePaymentMethod @default(CASH)
-  recordedByUserId String?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  recordedBy       User?                @relation(fields: [recordedByUserId], references: [id])
-  shift            CashierShift?        @relation(fields: [shiftId], references: [id])
-  store            Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id             String               @id @default(uuid())
+  storeId        String
+  branchId       String?
+  shiftId        String?
+  title          String
+  category       String
+  vendorName     String
+  amount         BigInt
+  paidAmount     BigInt               @default(0)
+  paymentStatus  ExpensePaymentStatus @default(PAID)
+  paidFrom       ExpensePaidFrom      @default(CASH_DRAWER)
+  expenseDate    DateTime             @default(now())
+  dueDate        DateTime?
+  referenceNo    String?
+  repeatsMonthly Boolean              @default(false)
+  notes          String?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shift          CashierShift?        @relation(fields: [shiftId], references: [id])
+  createdBy      User?                @relation(fields: [createdById], references: [id])
 
   @@index([storeId])
+  @@index([storeId, expenseDate])
+  @@index([storeId, paymentStatus])
   @@index([storeId, shiftId])
   @@map("expenses")
 }
@@ -520,6 +531,19 @@ enum ExpensePaymentMethod {
   CASH
   BANK
   OTHER
+}
+
+enum ExpensePaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+}
+
+enum ExpensePaidFrom {
+  CASH_DRAWER
+  BANK
+  PETTY_CASH
+  NOT_PAID
 }
 
 model Supplier {
