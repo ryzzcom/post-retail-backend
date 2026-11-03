@@ -1,5 +1,5 @@
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export type PaymentMethodFilter =
   | 'ALL'
@@ -7,7 +7,8 @@ export type PaymentMethodFilter =
   | 'CARD'
   | 'BANK_TRANSFER'
   | 'WALLET'
-  | 'KHATA';
+  | 'KHATA'
+  | 'SPLIT';
 
 export class SalesHistoryQueryDto {
   @IsOptional()
@@ -21,19 +22,38 @@ export class SalesHistoryQueryDto {
   @Min(1)
   @Max(100)
   @Type(() => Number)
-  limit: number = 5;
+  limit: number = 10;
 
   @IsOptional()
   @IsString()
   search?: string;
 
   @IsOptional()
-  @IsIn(['ALL', 'CASH', 'CARD', 'BANK_TRANSFER', 'WALLET', 'KHATA'])
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return 'ALL';
+    const normalized = value.trim().toUpperCase().replace(/-/g, '_');
+    if (normalized === 'JAZZCASH_EASYPAISA' || normalized === 'JAZZCASH' || normalized === 'EASYPAISA') {
+      return 'WALLET';
+    }
+    if (normalized === 'KHATA_CREDIT') {
+      return 'KHATA';
+    }
+    return normalized as PaymentMethodFilter;
+  })
+  @IsIn(['ALL', 'CASH', 'CARD', 'BANK_TRANSFER', 'WALLET', 'KHATA', 'SPLIT'])
   paymentMethod: PaymentMethodFilter = 'ALL';
 
   @IsOptional()
   @IsString()
   cashierId?: string;
+
+  @IsOptional()
+  @IsString()
+  counterId?: string;
+
+  @IsOptional()
+  @IsString()
+  shiftId?: string;
 
   @IsOptional()
   @IsString()

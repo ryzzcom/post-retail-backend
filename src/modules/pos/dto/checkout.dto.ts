@@ -9,7 +9,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { PaymentMethod } from '@prisma/client';
 
 export class CheckoutItemDto {
@@ -35,6 +35,17 @@ export class CheckoutItemDto {
 
 export class CheckoutPaymentDto {
   @IsNotEmpty()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.trim().toUpperCase().replace(/-/g, '_');
+    if (normalized === 'JAZZCASH_EASYPAISA' || normalized === 'JAZZCASH' || normalized === 'EASYPAISA') {
+      return PaymentMethod.WALLET;
+    }
+    if (normalized === 'KHATA_CREDIT') {
+      return PaymentMethod.KHATA;
+    }
+    return normalized as PaymentMethod;
+  })
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
 
@@ -44,14 +55,28 @@ export class CheckoutPaymentDto {
   amount: number; // PKR Rupees
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  cashTendered?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  changeDue?: number;
+
+  @IsOptional()
   @IsString()
   referenceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  reference?: string;
 }
 
 export class CheckoutDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  counterId: string;
+  counterId?: string = '1';
 
   @IsOptional()
   @IsString()
@@ -70,6 +95,16 @@ export class CheckoutDto {
   @IsNumber()
   @Min(0)
   discount?: number; // Total order discount in PKR Rupees
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  billDiscount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  pointsRedeemed?: number; // Loyalty points redeemed (1 pt = 1 PKR)
 
   @IsOptional()
   @IsString()

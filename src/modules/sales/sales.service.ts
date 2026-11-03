@@ -94,6 +94,21 @@ export class SalesService {
       where.cashierId = query.cashierId;
     }
 
+    // Filter by Counter
+    if (query.counterId) {
+      const counter = await this.prisma.counter.findFirst({
+        where: { storeId, OR: [{ id: query.counterId }, { code: query.counterId }] },
+      });
+      if (counter) {
+        where.counterId = counter.id;
+      }
+    }
+
+    // Filter by Shift
+    if (query.shiftId) {
+      where.shiftId = query.shiftId;
+    }
+
     // Filter by Payment Method
     if (query.paymentMethod && query.paymentMethod !== 'ALL') {
       where.payments = {
@@ -204,29 +219,48 @@ export class SalesService {
         `${order.cashier.firstName ?? ''} ${order.cashier.lastName ?? ''}`.trim() ||
         'Cashier';
 
+      const primaryMethod = order.payments[0]?.method;
+      let paidByMethod = 'cash';
+      if (primaryMethod === PaymentMethod.CARD) paidByMethod = 'card';
+      else if (primaryMethod === PaymentMethod.BANK_TRANSFER) paidByMethod = 'bank_transfer';
+      else if (primaryMethod === PaymentMethod.WALLET) paidByMethod = 'wallet';
+      else if (primaryMethod === PaymentMethod.KHATA) paidByMethod = 'khata_credit';
+
       return {
         id: order.id,
         receiptNo: order.receiptNo,
+        receiptNumber: order.receiptNo,
         createdAt: order.createdAt.toISOString(),
         timeLabel: formatPktTime(order.createdAt),
+        time: formatPktTime(order.createdAt),
         itemCount,
+        itemsCount: itemCount,
+        itemsSummary: `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`,
+        customerName: order.customer?.name ?? 'Walk-in',
+        customerPhone: order.customer?.phone ?? undefined,
         customer: {
           id: order.customer?.id ?? null,
           name: order.customer?.name ?? 'Walk-in',
           phone: order.customer?.phone ?? null,
         },
         paidBy: this.formatPaymentSummary(order.payments),
+        paidByMethod,
         cashier: {
           id: order.cashier.id,
           name: cashierName,
         },
-        whatsappStatus: order.whatsappStatus,
+        cashierName,
+        whatsappStatus: order.whatsappStatus.toLowerCase(),
         total: paisaToRupees(order.grandTotal),
+        totalAmountPKR: paisaToRupees(order.grandTotal),
       };
     });
 
     return {
       summary: {
+        receiptsCount: totalReceipts,
+        itemsCount: totalItemsSold,
+        totalSalesPKR: totalRevenue,
         totalReceipts,
         totalItemsSold,
         totalRevenue,
@@ -294,7 +328,7 @@ export class SalesService {
     const lineItems = order.items.map((item) => {
       const productName = item.variant?.product?.name ?? 'General Retail Item';
       const sku = item.variant?.sku ?? 'SKU-N/A';
-      const variantLabel = `${productName} · ${sku}`;
+      const variantLabel = `${productName} Â· ${sku}`;
       const returnedQuantity = item.returnedQuantity ?? 0;
       const returnableQuantity = Math.max(0, item.quantity - returnedQuantity);
 
@@ -376,7 +410,7 @@ export class SalesService {
         title: 'Sale completed',
         timestamp: order.createdAt.toISOString(),
         actor: cashierName,
-        detail: `Rs. ${paisaToRupees(order.grandTotal).toLocaleString()} · ${this.formatPaymentSummary(order.payments)}`,
+        detail: `Rs. ${paisaToRupees(order.grandTotal).toLocaleString()} Â· ${this.formatPaymentSummary(order.payments)}`,
       },
     ];
 
