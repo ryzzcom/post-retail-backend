@@ -5,7 +5,7 @@ import { RedisModule } from '@core/redis/redis.module';
 import { MailModule } from '@core/mail/mail.module';
 import { AppController } from './app.controller';
 
-// 9 Domain Modules
+// Domain Feature Modules
 import { AuthModule } from '@modules/auth/auth.module';
 import { TenantsModule } from '@modules/tenants/tenants.module';
 import { CatalogModule } from '@modules/catalog/catalog.module';
@@ -19,6 +19,9 @@ import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { SalesModule } from '@modules/sales/sales.module';
 import { PurchasesModule } from '@modules/purchases/purchases.module';
 import { LoyaltyModule } from '@modules/loyalty/loyalty.module';
+import { WhatsappModule } from '@modules/whatsapp/whatsapp.module';
+import { ReportsModule } from '@modules/reports/reports.module';
+import { SettingsModule } from '@modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -44,6 +47,9 @@ import { LoyaltyModule } from '@modules/loyalty/loyalty.module';
     SalesModule,
     PurchasesModule,
     LoyaltyModule,
+    WhatsappModule,
+    ReportsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [],

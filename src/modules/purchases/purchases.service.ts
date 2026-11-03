@@ -13,6 +13,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { RecordSupplierPaymentDto } from './dto/record-supplier-payment.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
 import { formatDate, formatPktDateTime as formatDateTime, buildDateRangeFilter } from '@core/utils/date-time.util';
+import { RedisService } from '@core/redis/redis.service';
 import {
   PaymentMethod,
   PurchasePaymentStatus,
@@ -24,7 +25,10 @@ import {
 
 @Injectable()
 export class PurchasesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   // ===========================================================================
   // 1. Purchases Endpoints
@@ -883,6 +887,9 @@ export class PurchasesService {
           });
         }
       }
+
+      // Invalidate Redis dashboard cache so financial position payables strip updates immediately
+      await this.redisService.delPattern(`dashboard:${storeId}:*`);
 
       return {
         success: true,

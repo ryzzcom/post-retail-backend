@@ -18,8 +18,30 @@ export function escapeCsvField(val: any): string {
 
 /**
  * Converts an array of objects to a CSV string.
+ * Supports both signatures:
+ *   objectsToCsv(rows)
+ *   objectsToCsv(headers, rows)
  */
-export function objectsToCsv(headers: string[], rows: Record<string, any>[]): string {
+export function objectsToCsv(
+  headersOrRows: string[] | Record<string, any>[],
+  maybeRows?: Record<string, any>[],
+): string {
+  let headers: string[];
+  let rows: Record<string, any>[];
+
+  if (Array.isArray(headersOrRows) && headersOrRows.length > 0 && typeof headersOrRows[0] === 'object') {
+    rows = headersOrRows as Record<string, any>[];
+    headers = Object.keys(rows[0] || {});
+  } else if (Array.isArray(headersOrRows) && headersOrRows.length === 0 && !maybeRows) {
+    return '';
+  } else {
+    headers = (headersOrRows as string[]) || [];
+    rows = maybeRows || [];
+    if (headers.length === 0 && rows.length > 0) {
+      headers = Object.keys(rows[0]);
+    }
+  }
+
   const headerLine = headers.map(escapeCsvField).join(',');
   const rowLines = rows.map((row) =>
     headers.map((h) => escapeCsvField(row[h] !== undefined ? row[h] : '')).join(','),
@@ -48,7 +70,7 @@ export function parseCsvToObjects(csvText: string): Record<string, any>[] {
     const rowObj: Record<string, any> = {};
     for (let j = 0; j < headers.length; j++) {
       const header = headers[j];
-      rowObj[header] = values[j] !== undefined ? values[j].trim() : '';
+      rowObj[header] = values[j] !== undefined ? values[j] : '';
     }
     results.push(rowObj);
   }
@@ -57,66 +79,61 @@ export function parseCsvToObjects(csvText: string): Record<string, any>[] {
 }
 
 /**
- * Splits CSV content into lines respecting quoted newlines.
+ * Splits text into lines taking quoted multi-line fields into account.
  */
-function splitCsvLines(csvText: string): string[] {
+function splitCsvLines(text: string): string[] {
   const lines: string[] = [];
-  let currentLine = '';
-  let insideQuotes = false;
+  let current = '';
+  let inQuotes = false;
 
-  for (let i = 0; i < csvText.length; i++) {
-    const char = csvText[i];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
     if (char === '"') {
-      insideQuotes = !insideQuotes;
-      currentLine += char;
-    } else if ((char === '\n' || char === '\r') && !insideQuotes) {
-      if (char === '\r' && csvText[i + 1] === '\n') {
-        i++; // Skip \n in \r\n
+      inQuotes = !inQuotes;
+      current += char;
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[i + 1] === '\n') {
+        i++; // skip \n of \r\n
       }
-      if (currentLine.trim()) {
-        lines.push(currentLine);
-      }
-      currentLine = '';
+      lines.push(current);
+      current = '';
     } else {
-      currentLine += char;
+      current += char;
     }
   }
 
-  if (currentLine.trim()) {
-    lines.push(currentLine);
+  if (current) {
+    lines.push(current);
   }
 
   return lines;
 }
 
 /**
- * Parses a single CSV line into an array of field values.
+ * Parses a single CSV line honoring double quotes.
  */
 function parseCsvRow(line: string): string[] {
-  const values: string[] = [];
-  let currentVal = '';
-  let insideQuotes = false;
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
-
     if (char === '"') {
-      if (insideQuotes && line[i + 1] === '"') {
-        // Escaped double quote
-        currentVal += '"';
-        i++;
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++; // skip escaped quote
       } else {
-        // Toggle quote state
-        insideQuotes = !insideQuotes;
+        inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !insideQuotes) {
-      values.push(currentVal);
-      currentVal = '';
+    } else if (char === ',' && !inQuotes) {
+      fields.push(current);
+      current = '';
     } else {
-      currentVal += char;
+      current += char;
     }
   }
 
-  values.push(currentVal);
-  return values;
+  fields.push(current);
+  return fields;
 }

@@ -51,6 +51,19 @@ export function formatPktDateTime(date: Date | string | null | undefined): strin
 }
 
 /**
+ * Calculate elapsed calendar days from a given date in Pakistan Standard Time.
+ * Useful for aging calculations (Khata receivables, dead-stock threshold, etc.).
+ */
+export function calculateDaysElapsedPkt(fromDate: Date | string | null | undefined): number {
+  if (!fromDate) return 0;
+  const d = typeof fromDate === 'string' ? new Date(fromDate) : fromDate;
+  if (isNaN(d.getTime())) return 0;
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+/**
  * Build a Prisma date range filter ({ gte, lte }) from optional start and end date strings.
  */
 export function buildDateRangeFilter(

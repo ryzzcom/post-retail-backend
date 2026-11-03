@@ -10,6 +10,7 @@ import {
 import { ShiftsService } from './shifts.service';
 import { OpenShiftDto } from './dto/open-shift.dto';
 import { CloseShiftDto } from './dto/close-shift.dto';
+import { CashMovementDto } from './dto/cash-movement.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { CurrentTenant } from '@core/decorators/current-tenant.decorator';
 import { CurrentUser } from '@core/decorators/current-user.decorator';
@@ -39,6 +40,15 @@ export class ShiftsController {
     @CurrentUser('id') cashierId: string,
   ) {
     return this.shiftsService.getCurrentShift(storeId, cashierId);
+  }
+
+  @Post('cash-movement')
+  async recordCashMovement(
+    @CurrentTenant('storeId') storeId: string,
+    @CurrentUser('id') cashierId: string,
+    @Body() dto: CashMovementDto,
+  ) {
+    return this.shiftsService.recordCashMovement(storeId, cashierId, dto);
   }
 
   @Post(':id/close')

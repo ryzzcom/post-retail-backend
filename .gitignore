@@ -34,3 +34,5 @@ yarn-error.log*
 postman/
 /postman/
 BACKEND-AUDIT-REPORT.pdf
+COMPLETE-BACKEND-IMPLEMENTATION-REPORT.pdf
+*.pdf

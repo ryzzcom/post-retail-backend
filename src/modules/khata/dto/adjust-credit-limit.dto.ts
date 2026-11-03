@@ -1,14 +1,23 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class AdjustCreditLimitDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  customerId: string;
+  customerId?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
+  @IsString()
+  accountId?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  newCreditLimit: number; // PKR Rupees
+  creditLimit?: number; // PKR Rupees
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  newCreditLimit?: number; // PKR Rupees
 
   @IsOptional()
   @IsString()

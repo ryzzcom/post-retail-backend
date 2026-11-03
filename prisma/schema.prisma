@@ -44,6 +44,52 @@ model Store {
   loyaltyConfig   LoyaltyConfig?
   coupons         Coupon[]
 
+  tagline                    String?
+  storeCategory              String?
+  whatsappNumber             String?
+  officialEmail              String?
+  areaMarket                 String?
+  city                       String?                  @default("Lahore")
+  timezone                   String?                  @default("Asia/Karachi")
+  operatingHours             String?
+  strn                       String?
+  fbrIntegrationEnabled      Boolean                  @default(false)
+  posRegistrationId          String?
+  defaultGstRate             Decimal?                 @default(0)
+  paperSize                  String?                  @default("80mm")
+  autoPrintReceipt           Boolean                  @default(true)
+  openDrawerOnCash           Boolean                  @default(true)
+  printMerchantCopy          Boolean                  @default(false)
+  printBarcodeOnBottom       Boolean                  @default(true)
+  headerBusinessName         String?
+  branchAddressLine          String?
+  phoneOnReceipt             String?
+  showCashierName            Boolean                  @default(true)
+  showCustomerLoyaltyPoints  Boolean                  @default(true)
+  showKhataRemainingBalance  Boolean                  @default(true)
+  exchangePolicyFooter       String?
+  instagramWebsiteHandle     String?
+  allowNegativeInventory     Boolean                  @default(false)
+  requireCustomerPhoneOnSale Boolean                  @default(false)
+  autoRoundToNearestRupee    Boolean                  @default(true)
+  defaultPaymentMethod       String?                  @default("Cash")
+  maxDiscountWithoutManagerPin Int                    @default(10)
+  returnExchangeWindowDays   Int                      @default(14)
+  lowStockThresholdUnits     Int                      @default(5)
+  autoGenerateSkuPrefix      String?                  @default("SKU-")
+  enableVariantMatrix        Boolean                  @default(true)
+  warnDeadStockDays          Int                      @default(90)
+  enableKhataCreditAtPos     Boolean                  @default(true)
+  defaultCreditLimit         BigInt                   @default(5000000)
+  defaultPaymentDueDays      Int                      @default(30)
+  blockNewCreditWhenOverdue  Boolean                  @default(true)
+  autoSendWhatsAppReminder   Boolean                  @default(true)
+  whatsAppConfig             WhatsAppConfig?
+  whatsAppRules              WhatsAppAutomationRule[]
+  whatsAppCampaigns          WhatsAppCampaign[]
+  whatsAppLogs               WhatsAppMessageLog[]
+  shiftCashMovements         ShiftCashMovement[]
+
   @@map("stores")
 }
 
@@ -92,6 +138,10 @@ model User {
   supplierPayments SupplierPayment[]
   pointsAdjustments PointsLedger[]
   store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  pinHash                    String?
+  assignedTerminal           String?
+  maxDiscountPercent         Int                      @default(10)
+  shiftCashMovements         ShiftCashMovement[]
 
   @@index([storeId])
   @@index([storeId, role])
@@ -258,6 +308,8 @@ model CashierShift {
   @@index([storeId, counterId])
   @@index([storeId, cashierId])
   @@index([storeId, status])
+  cashMovements              ShiftCashMovement[]
+
   @@map("cashier_shifts")
 }
 
@@ -500,6 +552,8 @@ enum WhatsappStatus {
   DELIVERED
   FAILED
   PENDING
+  SENT
+  READ
 }
 
 enum HeldBillStatus {
@@ -511,6 +565,7 @@ enum HeldBillStatus {
 enum KhataTransactionType {
   DEBIT_PURCHASE
   CREDIT_PAYMENT
+  ADJUSTMENT
 }
 
 enum StockMovementType {
@@ -525,12 +580,6 @@ enum StockMovementType {
   IN
   OUT
   RECEIVING
-}
-
-enum ExpensePaymentMethod {
-  CASH
-  BANK
-  OTHER
 }
 
 enum ExpensePaymentStatus {
@@ -785,3 +834,129 @@ model Coupon {
 
 
 
+
+enum WhatsAppCampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+}
+
+enum WhatsAppMessageCategory {
+  DIGITAL_RECEIPT
+  KHATA_REMINDER
+  BACK_IN_STOCK
+  CAMPAIGN
+  REVIEW
+}
+
+enum CashDrawerAdjustmentType {
+  CASH_IN
+  CASH_OUT
+}
+
+model WhatsAppConfig {
+  id                     String    @id @default(uuid())
+  storeId                String    @unique
+  phoneNumberId          String?
+  businessDisplayName    String?
+  googleReviewLink       String?
+  isApiEnabled           Boolean   @default(true)
+  requireExplicitOptIn   Boolean   @default(true)
+  enforceQuietHours      Boolean   @default(true)
+  autoUnsubscribeKeyword Boolean   @default(true)
+  availableCredits       Int       @default(1000)
+  monthlyAllowance       Int       @default(1000)
+  reservedCredits        Int       @default(0)
+  purchasedCredits       Int       @default(0)
+  nextRenewalDate        DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  store                  Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_configs")
+}
+
+model WhatsAppAutomationRule {
+  id           String    @id @default(uuid())
+  storeId      String
+  title        String
+  timing       String
+  trigger      String
+  templateName String
+  lastRun      DateTime?
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@map("whatsapp_automation_rules")
+}
+
+model WhatsAppCampaign {
+  id                String                 @id @default(uuid())
+  storeId           String
+  title             String
+  purpose           String
+  couponCode        String?
+  discount          String?
+  validity          String?
+  audienceSegment   String
+  templateName      String
+  templateId        String?
+  messagesSent      Int                    @default(0)
+  posRedeemed       Int                    @default(0)
+  revenueAttributed BigInt                 @default(0)
+  status            WhatsAppCampaignStatus @default(DRAFT)
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  store             Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@map("whatsapp_campaigns")
+}
+
+model WhatsAppMessageLog {
+  id            String                  @id @default(uuid())
+  storeId       String
+  customerId    String?
+  customerName  String
+  customerPhone String
+  receiptRef    String?
+  templateName  String
+  message       String
+  status        WhatsappStatus          @default(SENT)
+  failureReason String?
+  category      WhatsAppMessageCategory @default(DIGITAL_RECEIPT)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, customerPhone])
+  @@map("whatsapp_message_logs")
+}
+
+model ShiftCashMovement {
+  id                String                   @id @default(uuid())
+  storeId           String
+  shiftId           String
+  type              CashDrawerAdjustmentType
+  amount            BigInt
+  reason            String
+  notes             String?
+  performedByUserId String?
+  createdAt         DateTime                 @default(now())
+  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shift             CashierShift             @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  performedBy       User?                    @relation(fields: [performedByUserId], references: [id])
+
+  @@index([storeId])
+  @@index([shiftId])
+  @@map("shift_cash_movements")
+}

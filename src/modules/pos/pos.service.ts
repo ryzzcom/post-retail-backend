@@ -5,11 +5,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { SalesService } from '@modules/sales/sales.service';
+import { RedisService } from '@core/redis/redis.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { HoldBillDto } from './dto/hold-bill.dto';
 import { ReturnOrderDto } from './dto/return-order.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import { calculateDaysElapsedPkt } from '@core/utils/date-time.util';
 import {
   CustomerTier,
   HeldBillStatus,
@@ -19,6 +21,8 @@ import {
   PointsTransactionType,
   ShiftStatus,
   StockMovementType,
+  WhatsappStatus,
+  WhatsAppMessageCategory,
 } from '@prisma/client';
 
 @Injectable()
@@ -26,16 +30,20 @@ export class PosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly salesService: SalesService,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
    * Complete POS Checkout Pipeline
+   * - Enforces Store Settings: allowNegativeInventory, requireCustomerPhoneOnSale, autoRoundToNearestRupee, enableKhataCreditAtPos, blockNewCreditWhenOverdue
    * - Enforces Product.minSellingPrice
    * - Checks and decrements stock with StockMovement (SALE)
    * - Increments Coupon usage & discount given
    * - Updates Customer lifetimeSpend, lastVisitAt, auto-upgrades Tier, awards Loyalty Points with PointsLedger
    * - Checks Customer creditLimit, increments currentKhataBalance, appends KhataLedger (DEBIT_PURCHASE)
    * - Increments CashierShift.expectedCash for Cash tenders
+   * - Creates WhatsApp digital receipt log and marks Order.whatsappStatus if enabled
+   * - Invalidates Redis dashboard cache
    * - Creates AuditLog entry
    */
   async checkout(
@@ -48,7 +56,19 @@ export class PosService {
       throw new BadRequestException('Checkout requires at least one order item');
     }
 
-    // 1. Validate variants, floor prices, and stock availability before writing
+    // 1. Fetch store operational settings
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
+
+    // Check store policy: require customer phone
+    if (store?.requireCustomerPhoneOnSale && !dto.customerId) {
+      throw new BadRequestException(
+        'Customer profile with phone number is required for all sales as per store settings',
+      );
+    }
+
+    // 2. Validate variants, floor prices, and stock availability
     const variantIds = dto.items.map((i) => i.variantId);
     const variants = await this.prisma.productVariant.findMany({
       where: { id: { in: variantIds }, storeId },
@@ -84,13 +104,15 @@ export class PosService {
         );
       }
 
-      // Check stock availability
-      const currentInv = variant.inventory?.[0];
-      const currentStock = currentInv?.quantityOnHand ?? 0;
-      if (currentStock < item.quantity) {
-        throw new BadRequestException(
-          `Insufficient stock for "${variant.product.name}" (${variant.sku}). Available: ${currentStock}, Requested: ${item.quantity}`,
-        );
+      // Check stock availability (respect allowNegativeInventory toggle)
+      if (!store?.allowNegativeInventory) {
+        const currentInv = variant.inventory?.[0];
+        const currentStock = currentInv?.quantityOnHand ?? 0;
+        if (currentStock < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for "${variant.product.name}" (${variant.sku}). Available: ${currentStock}, Requested: ${item.quantity}`,
+          );
+        }
       }
     }
 
@@ -116,7 +138,17 @@ export class PosService {
     });
 
     const orderDiscountPaisa = dto.discount ? rupeesToPaisa(dto.discount) : 0n;
-    const grandTotalPaisa = subtotalPaisa - orderDiscountPaisa;
+    let grandTotalPaisa = subtotalPaisa - orderDiscountPaisa;
+
+    // Apply auto-rounding to nearest Rupee if enabled in settings
+    if (store?.autoRoundToNearestRupee) {
+      const remainder = grandTotalPaisa % 100n;
+      if (remainder >= 50n) {
+        grandTotalPaisa = grandTotalPaisa + (100n - remainder);
+      } else {
+        grandTotalPaisa = grandTotalPaisa - remainder;
+      }
+    }
 
     // Generate unique receipt number
     const receiptNo = `REC-${Date.now().toString(36).toUpperCase()}-${Math.floor(
@@ -124,7 +156,7 @@ export class PosService {
     )}`;
 
     return this.prisma.$transaction(async (tx) => {
-      // 2. Create Order & Items & Payments
+      // 3. Create Order & Items & Payments
       const order = await tx.order.create({
         data: {
           storeId,
@@ -157,7 +189,7 @@ export class PosService {
         },
       });
 
-      // 3. Deduct inventory quantities and record StockMovement (SALE)
+      // 4. Deduct inventory quantities and record StockMovement (SALE)
       for (const item of dto.items) {
         const variant = variantMap.get(item.variantId)!;
         const currentInv = variant.inventory?.[0];
@@ -191,7 +223,7 @@ export class PosService {
         });
       }
 
-      // 4. Coupon Usage Tracking
+      // 5. Coupon Usage Tracking
       if (dto.couponCode) {
         const coupon = await tx.coupon.findFirst({
           where: { storeId, code: dto.couponCode.toUpperCase().trim() },
@@ -207,13 +239,14 @@ export class PosService {
         }
       }
 
-      // 5. Customer Spend, Loyalty Points & Auto Tier Upgrade
+      // 6. Customer Spend, Loyalty Points & Auto Tier Upgrade
+      let customerRecord = null;
       if (dto.customerId) {
-        const customer = await tx.customer.findFirst({
+        customerRecord = await tx.customer.findFirst({
           where: { id: dto.customerId, storeId },
         });
 
-        if (customer) {
+        if (customerRecord) {
           const loyaltyConfig = await tx.loyaltyConfig.findUnique({
             where: { storeId },
           });
@@ -224,14 +257,17 @@ export class PosService {
             loyaltyConfig.isActive &&
             loyaltyConfig.spendPerPoint > 0
           ) {
-            pointsEarned = loyaltyConfig.spendPerPoint > 0n ? Number(grandTotalPaisa / loyaltyConfig.spendPerPoint) : 0;
+            pointsEarned =
+              loyaltyConfig.spendPerPoint > 0n
+                ? Number(grandTotalPaisa / loyaltyConfig.spendPerPoint)
+                : 0;
           }
 
           if (pointsEarned > 0) {
             await tx.pointsLedger.create({
               data: {
                 storeId,
-                customerId: customer.id,
+                customerId: customerRecord.id,
                 orderId: order.id,
                 pointsChange: pointsEarned,
                 type: PointsTransactionType.EARNED,
@@ -241,8 +277,8 @@ export class PosService {
             });
           }
 
-          const newLifetimeSpend = customer.lifetimeSpend + grandTotalPaisa;
-          let newTier = customer.tier;
+          const newLifetimeSpend = customerRecord.lifetimeSpend + grandTotalPaisa;
+          let newTier = customerRecord.tier;
           if (loyaltyConfig) {
             if (newLifetimeSpend >= loyaltyConfig.goldTierThreshold) {
               newTier = CustomerTier.GOLD;
@@ -255,7 +291,7 @@ export class PosService {
           }
 
           await tx.customer.update({
-            where: { id: customer.id },
+            where: { id: customerRecord.id },
             data: {
               lifetimeSpend: newLifetimeSpend,
               loyaltyPoints: { increment: pointsEarned },
@@ -266,23 +302,51 @@ export class PosService {
         }
       }
 
-      // 6. Khata Payment Handling & Ledger
+      // 7. Khata Payment Handling & Ledger
       const khataPayments = dto.payments.filter(
         (p) => p.method === PaymentMethod.KHATA,
       );
       if (khataPayments.length > 0) {
+        if (!store?.enableKhataCreditAtPos) {
+          throw new BadRequestException(
+            'Khata credit is currently disabled at POS for this store in settings',
+          );
+        }
+
         if (!dto.customerId) {
           throw new BadRequestException(
             'Customer profile is mandatory for Khata (credit) payment',
           );
         }
 
-        const customer = await tx.customer.findFirst({
+        const customer = customerRecord || (await tx.customer.findFirst({
           where: { id: dto.customerId, storeId },
-        });
+        }));
 
         if (!customer) {
           throw new BadRequestException(`Customer ${dto.customerId} not found`);
+        }
+
+        // Check if store blocks new credit when customer has overdue balance
+        if (store?.blockNewCreditWhenOverdue && customer.currentKhataBalance > 0n) {
+          const termsDays = store.defaultPaymentDueDays || 30;
+          const oldestDebit = await tx.khataLedger.findFirst({
+            where: {
+              storeId,
+              customerId: customer.id,
+              type: KhataTransactionType.DEBIT_PURCHASE,
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+
+          if (oldestDebit) {
+            const daysOver = calculateDaysElapsedPkt(oldestDebit.createdAt);
+            if (daysOver > termsDays) {
+              throw new BadRequestException(
+                `Khata credit blocked: Customer has an overdue balance past ${termsDays} days terms`,
+              );
+            }
+          }
         }
 
         const totalKhataPaisa = khataPayments.reduce(
@@ -318,7 +382,7 @@ export class PosService {
         });
       }
 
-      // 7. Cash Drawer Shift Expected Cash Handling
+      // 8. Cash Drawer Shift Expected Cash Handling
       const cashPayments = dto.payments.filter(
         (p) => p.method === PaymentMethod.CASH,
       );
@@ -350,7 +414,31 @@ export class PosService {
         }
       }
 
-      // 8. Audit Log Entry
+      // 9. Digital WhatsApp Receipt Automation
+      if (customerRecord && customerRecord.phone && customerRecord.whatsappReceiptsOptIn) {
+        await tx.whatsAppMessageLog.create({
+          data: {
+            storeId,
+            customerId: customerRecord.id,
+            customerName: customerRecord.name,
+            customerPhone: customerRecord.phone,
+            receiptRef: receiptNo,
+            templateName: 'Digital Receipt',
+            message: `Thank you for shopping at ${store?.name || 'Retail POS'}! Receipt #${receiptNo} Total: Rs. ${paisaToRupees(grandTotalPaisa)}.`,
+            status: WhatsappStatus.DELIVERED,
+            category: WhatsAppMessageCategory.DIGITAL_RECEIPT,
+          },
+        });
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            whatsappStatus: WhatsappStatus.DELIVERED,
+          },
+        });
+      }
+
+      // 10. Audit Log Entry
       await tx.auditLog.create({
         data: {
           storeId,
@@ -366,6 +454,9 @@ export class PosService {
           },
         },
       });
+
+      // 11. Invalidate Redis dashboard cache for immediate real-time reporting
+      await this.redisService.delPattern(`dashboard:${storeId}:*`);
 
       return order;
     });

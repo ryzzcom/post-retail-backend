@@ -1,9 +1,13 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class RecordKhataPaymentDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  customerId: string;
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  accountId?: string;
 
   @IsNotEmpty()
   @IsNumber()
@@ -12,7 +16,19 @@ export class RecordKhataPaymentDto {
 
   @IsOptional()
   @IsString()
+  paymentDate?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string; // cash, bank_transfer, card, etc.
+
+  @IsOptional()
+  @IsString()
   referenceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  reference?: string;
 
   @IsOptional()
   @IsString()

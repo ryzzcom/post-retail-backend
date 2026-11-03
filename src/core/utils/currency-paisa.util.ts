@@ -1,5 +1,5 @@
 /**
- * Currency Conversion Utilities for Pakistani Rupee (PKR).
+ * Currency Conversion & Financial Math Utilities for Pakistani Rupee (PKR).
  * 1 PKR = 100 Paisas (Integer minor units).
  * All monetary amounts in database columns and internal math must use Paisas (BigInt).
  */
@@ -27,4 +27,38 @@ export function rupeesToPaisa(rupees: number): bigint {
     throw new Error(`Invalid rupee amount provided for conversion: ${rupees}`);
   }
   return BigInt(Math.round(rupees * 100));
+}
+
+/**
+ * Calculate percentage share of part out of total (e.g. share of category expense, or credit used %).
+ * Safe against divide-by-zero.
+ */
+export function calculatePercentageShare(
+  part: bigint | number,
+  total: bigint | number,
+  roundDecimals = 1,
+): number {
+  const p = typeof part === 'bigint' ? Number(part) : part;
+  const t = typeof total === 'bigint' ? Number(total) : total;
+  if (!t || t <= 0 || isNaN(p) || isNaN(t)) return 0;
+  const factor = Math.pow(10, roundDecimals);
+  return Math.round((p / t) * 100 * factor) / factor;
+}
+
+/**
+ * Calculate percentage growth between current and previous amounts (e.g. MoM expense or revenue growth).
+ * Safe against divide-by-zero.
+ */
+export function calculateGrowthPct(
+  current: bigint | number,
+  previous: bigint | number,
+  roundDecimals = 1,
+): number {
+  const cur = typeof current === 'bigint' ? Number(current) : current;
+  const prev = typeof previous === 'bigint' ? Number(previous) : previous;
+  if (!prev || prev === 0) {
+    return cur > 0 ? 100 : 0;
+  }
+  const factor = Math.pow(10, roundDecimals);
+  return Math.round(((cur - prev) / Math.abs(prev)) * 100 * factor) / factor;
 }

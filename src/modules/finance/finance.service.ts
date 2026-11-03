@@ -8,8 +8,14 @@ import { ExpenseQueryDto } from './dto/expense-query.dto';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { PayExpenseDto } from './dto/pay-expense.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
-import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import {
+  paisaToRupees,
+  rupeesToPaisa,
+  calculatePercentageShare,
+  calculateGrowthPct,
+} from '@core/utils/currency-paisa.util';
 import { formatDate, getMonthDateBoundaries } from '@core/utils/date-time.util';
+import { RedisService } from '@core/redis/redis.service';
 import {
   ExpensePaidFrom,
   ExpensePaymentStatus,
@@ -48,7 +54,10 @@ function getBucket(
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   // ===========================================================================
   // 1. Get Expenses: Summary Cards, Where It Went, Bills to Pay & Table
@@ -178,18 +187,7 @@ export class FinanceService {
     const actuallyPaidPKR = paisaToRupees(actuallyPaidPaisa);
     const stillOwedPaisa = totalAmountPaisa - actuallyPaidPaisa;
     const stillOwedPKR = paisaToRupees(stillOwedPaisa > 0n ? stillOwedPaisa : 0n);
-
-    let vsPreviousMonthPct = 0;
-    if (previousMonthPKR > 0) {
-      vsPreviousMonthPct = Number(
-        (
-          ((expensesRecordedPKR - previousMonthPKR) / previousMonthPKR) *
-          100
-        ).toFixed(1),
-      );
-    } else if (expensesRecordedPKR > 0) {
-      vsPreviousMonthPct = 100;
-    }
+    const vsPreviousMonthPct = calculateGrowthPct(expensesRecordedPKR, previousMonthPKR);
 
     const summary = {
       expensesRecordedPKR,
@@ -241,10 +239,7 @@ export class FinanceService {
       const amtPaisa = curBucketMap[bucket];
       const amountPKR = paisaToRupees(amtPaisa);
       const lastMonthPKR = paisaToRupees(prevBucketMap[bucket]);
-      const sharePct =
-        expensesRecordedPKR > 0
-          ? Math.round((amountPKR / expensesRecordedPKR) * 100)
-          : 0;
+      const sharePct = calculatePercentageShare(amountPKR, expensesRecordedPKR);
 
       return {
         bucket,
@@ -434,6 +429,8 @@ export class FinanceService {
         },
       });
 
+      await this.redisService.delPattern(`dashboard:${storeId}:*`);
+
       return {
         id: expense.id,
         title: expense.title,
@@ -533,6 +530,8 @@ export class FinanceService {
           },
         },
       });
+
+      await this.redisService.delPattern(`dashboard:${storeId}:*`);
 
       return {
         id: updated.id,

@@ -6,8 +6,15 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { paisaToRupees } from '@core/utils/currency-paisa.util';
-import { formatDate, formatPktTime, formatPktDateTime, buildDateRangeFilter } from '@core/utils/date-time.util';
+import {
+  formatDate,
+  formatPktTime,
+  formatPktDateTime,
+  calculateDaysElapsedPkt,
+  buildDateRangeFilter,
+} from '@core/utils/date-time.util';
 import { maskPakistaniPhone } from '@core/utils/phone.util';
+import { RedisService } from '@core/redis/redis.service';
 import {
   SalesHistoryQueryDto,
   PaymentMethodFilter,
@@ -30,43 +37,10 @@ import {
 export class SalesService {
   private readonly logger = new Logger(SalesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
-
-  /**
-   * Helper: Format Date/Time in Pakistan Standard Time (PKT, UTC+5)
-   */
-  private formatPktTime(date: Date): string {
-    return date.toLocaleTimeString('en-US', {
-      timeZone: 'Asia/Karachi',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  }
-
-  private formatPktDateTime(date: Date): string {
-    return date.toLocaleString('en-US', {
-      timeZone: 'Asia/Karachi',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  }
-
-  /**
-   * Helper: Mask Pakistani Phone Number (e.g. 0300-***4567)
-   */
-  private maskPhone(phone: string | null | undefined): string {
-    if (!phone) return 'N/A';
-    const clean = phone.replace(/[^0-9+]/g, '');
-    if (clean.length >= 7) {
-      return `${clean.slice(0, 4)}-***${clean.slice(-4)}`;
-    }
-    return clean;
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   /**
    * Helper: Format Payment Method Label
@@ -234,7 +208,7 @@ export class SalesService {
         id: order.id,
         receiptNo: order.receiptNo,
         createdAt: order.createdAt.toISOString(),
-        timeLabel: this.formatPktTime(order.createdAt),
+        timeLabel: formatPktTime(order.createdAt),
         itemCount,
         customer: {
           id: order.customer?.id ?? null,
@@ -359,7 +333,7 @@ export class SalesService {
     const customer = {
       id: order.customer?.id ?? null,
       name: customerName,
-      phoneMasked: this.maskPhone(order.customer?.phone),
+      phoneMasked: maskPakistaniPhone(order.customer?.phone),
       phone: order.customer?.phone ?? null,
       pointsEarned: (await this.prisma.pointsLedger.findFirst({
         where: {
@@ -411,7 +385,7 @@ export class SalesService {
         title: 'WhatsApp receipt delivered',
         timestamp: order.updatedAt.toISOString(),
         actor: 'System',
-        detail: `Sent to ${this.maskPhone(order.customer?.phone)}`,
+        detail: `Sent to ${maskPakistaniPhone(order.customer?.phone)}`,
       });
     } else if (order.whatsappStatus === 'FAILED') {
       history.push({
@@ -444,7 +418,7 @@ export class SalesService {
       id: order.id,
       receiptNo: order.receiptNo,
       createdAt: order.createdAt.toISOString(),
-      formattedDateTime: this.formatPktDateTime(order.createdAt),
+      formattedDateTime: formatPktDateTime(order.createdAt),
       cashierName,
       customerName,
       status: order.status,
@@ -601,6 +575,16 @@ export class SalesService {
 
       if (!order) {
         throw new NotFoundException(`Receipt #${receiptNo} not found`);
+      }
+
+      // Check return policy window from store operational settings
+      const store = await tx.store.findUnique({ where: { id: storeId } });
+      const windowDays = store?.returnExchangeWindowDays || 14;
+      const daysElapsed = calculateDaysElapsedPkt(order.createdAt);
+      if (daysElapsed > windowDays) {
+        throw new BadRequestException(
+          `Return window expired (${daysElapsed} days elapsed, store policy limit is ${windowDays} days)`,
+        );
       }
 
       let totalRefundPaisa = 0n;
@@ -811,6 +795,9 @@ export class SalesService {
           },
         },
       });
+
+      // Invalidate Redis dashboard cache for real-time consistency
+      await this.redisService.delPattern(`dashboard:${storeId}:*`);
 
       return {
         success: true,

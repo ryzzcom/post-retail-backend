@@ -24,7 +24,7 @@ import {
   KhataTransactionType,
   OrderStatus,
   PointsTransactionType,
-} from '@prisma/client';
+} from '@prisma/client';
 
 @Injectable()
 export class CustomersService {
@@ -188,7 +188,14 @@ export class CustomersService {
       );
     }
 
-    const creditLimitPaisa = rupeesToPaisa(dto.creditLimit ?? 50000);
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { defaultCreditLimit: true },
+    });
+    const creditLimitPaisa =
+      dto.creditLimit !== undefined
+        ? rupeesToPaisa(dto.creditLimit)
+        : (store?.defaultCreditLimit ?? rupeesToPaisa(50000));
     const openingKhataPaisa = rupeesToPaisa(dto.openingKhataBalance || 0);
 
     const tier = dto.tier || CustomerTier.REGULAR;
