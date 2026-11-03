@@ -71,6 +71,10 @@ export class CheckoutDto {
   @Min(0)
   discount?: number; // Total order discount in PKR Rupees
 
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CheckoutPaymentDto)

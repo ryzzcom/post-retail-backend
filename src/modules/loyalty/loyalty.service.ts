@@ -13,20 +13,13 @@ import { ValidatePosCartDto } from './dto/validate-pos-cart.dto';
 import { LoyaltyLedgerQueryDto } from './dto/loyalty-ledger-query.dto';
 import { CreateReferralDto } from './dto/create-referral.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import { formatDate } from '@core/utils/date-time.util';
 import { objectsToCsv } from '@core/utils/csv-parser.util';
 import {
   CouponType,
   OrderStatus,
   PointsTransactionType,
 } from '@prisma/client';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(date));
-}
 
 @Injectable()
 export class LoyaltyService {
@@ -460,16 +453,18 @@ export class LoyaltyService {
           }
 
           if (coupon.type === CouponType.PERCENTAGE) {
-            const pct = coupon.discountPct || 0;
-            let discount = (eligibleSubtotal * pct) / 100;
-            const maxCap = paisaToRupees(coupon.maxDiscountAmount);
-            if (maxCap > 0 && discount > maxCap) {
-              discount = maxCap;
+            const pct = BigInt(coupon.discountPct || 0);
+            const eligiblePaisa = rupeesToPaisa(eligibleSubtotal);
+            let discountPaisa = (eligiblePaisa * pct) / 100n;
+            if (coupon.maxDiscountAmount > 0n && discountPaisa > coupon.maxDiscountAmount) {
+              discountPaisa = coupon.maxDiscountAmount;
             }
-            couponDiscountPKR = Math.round(discount);
+            couponDiscountPKR = paisaToRupees(discountPaisa);
           } else if (coupon.type === CouponType.FIXED_AMOUNT) {
-            const fixedAmt = paisaToRupees(coupon.discountAmount);
-            couponDiscountPKR = Math.min(dto.subtotal, Math.round(fixedAmt));
+            const fixedPaisa = coupon.discountAmount;
+            const subtotalPaisa = rupeesToPaisa(dto.subtotal);
+            const finalDiscountPaisa = fixedPaisa < subtotalPaisa ? fixedPaisa : subtotalPaisa;
+            couponDiscountPKR = paisaToRupees(finalDiscountPaisa);
           } else if (coupon.type === CouponType.FREE_SHIPPING) {
             couponDiscountPKR = 0;
           }

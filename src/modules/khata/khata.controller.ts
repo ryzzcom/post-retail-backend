@@ -6,6 +6,7 @@ import {
   Param,
   Body,
   Query,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { KhataService } from './khata.service';
@@ -14,10 +15,14 @@ import { AdjustCreditLimitDto } from './dto/adjust-credit-limit.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { CurrentTenant } from '@core/decorators/current-tenant.decorator';
 import { Roles } from '@core/decorators/roles.decorator';
+import { JwtAuthGuard } from '@core/guards/jwt-auth.guard';
+import { RolesGuard } from '@core/guards/roles.guard';
 import { Role } from '@prisma/client';
 import { IdempotencyInterceptor } from '@core/interceptors/idempotency.interceptor';
 
 @Controller('api/v1/khata')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
 export class KhataController {
   constructor(private readonly khataService: KhataService) {}
 

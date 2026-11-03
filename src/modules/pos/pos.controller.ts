@@ -8,6 +8,7 @@ import {
   Query,
   Headers,
   UseInterceptors,
+  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { PosService } from './pos.service';
@@ -17,9 +18,15 @@ import { ReturnOrderDto } from './dto/return-order.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { CurrentTenant } from '@core/decorators/current-tenant.decorator';
 import { CurrentUser } from '@core/decorators/current-user.decorator';
+import { Roles } from '@core/decorators/roles.decorator';
+import { JwtAuthGuard } from '@core/guards/jwt-auth.guard';
+import { RolesGuard } from '@core/guards/roles.guard';
+import { Role } from '@prisma/client';
 import { IdempotencyInterceptor } from '@core/interceptors/idempotency.interceptor';
 
 @Controller('api/v1/pos')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
 export class PosController {
   constructor(private readonly posService: PosService) {}
 

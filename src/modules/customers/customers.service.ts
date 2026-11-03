@@ -18,20 +18,13 @@ import {
 } from './dto/adjust-customer-points.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
 import { objectsToCsv } from '@core/utils/csv-parser.util';
+import { formatDate } from '@core/utils/date-time.util';
 import {
   CustomerTier,
   KhataTransactionType,
   OrderStatus,
   PointsTransactionType,
-} from '@prisma/client';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(date));
-}
+} from '@prisma/client';
 
 @Injectable()
 export class CustomersService {

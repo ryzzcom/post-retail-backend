@@ -9,19 +9,12 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { PayExpenseDto } from './dto/pay-expense.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import { formatDate, getMonthDateBoundaries } from '@core/utils/date-time.util';
 import {
   ExpensePaidFrom,
   ExpensePaymentStatus,
   ShiftStatus,
 } from '@prisma/client';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(date));
-}
 
 function getBucket(
   category: string,

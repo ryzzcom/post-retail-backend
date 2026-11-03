@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { paisaToRupees } from '@core/utils/currency-paisa.util';
+import { formatDate, formatPktTime, formatPktDateTime, buildDateRangeFilter } from '@core/utils/date-time.util';
+import { maskPakistaniPhone } from '@core/utils/phone.util';
 import {
   SalesHistoryQueryDto,
   PaymentMethodFilter,
@@ -20,6 +22,7 @@ import {
   StockMovementType,
   KhataTransactionType,
   ShiftStatus,
+  PointsTransactionType,
   Prisma,
 } from '@prisma/client';
 
@@ -127,14 +130,9 @@ export class SalesService {
     }
 
     // Filter by Date Range
-    if (query.startDate || query.endDate) {
-      where.createdAt = {};
-      if (query.startDate) {
-        where.createdAt.gte = new Date(query.startDate);
-      }
-      if (query.endDate) {
-        where.createdAt.lte = new Date(query.endDate);
-      }
+    const dateFilter = buildDateRangeFilter(query.startDate, query.endDate);
+    if (dateFilter) {
+      where.createdAt = dateFilter;
     }
 
     // Case-insensitive Search
@@ -363,7 +361,13 @@ export class SalesService {
       name: customerName,
       phoneMasked: this.maskPhone(order.customer?.phone),
       phone: order.customer?.phone ?? null,
-      pointsEarned: Math.floor(paisaToRupees(order.grandTotal) / 100),
+      pointsEarned: (await this.prisma.pointsLedger.findFirst({
+        where: {
+          storeId,
+          orderId: order.id,
+          type: PointsTransactionType.EARNED,
+        },
+      }))?.pointsChange ?? 0,
       pointsBalance: order.customer?.loyaltyPoints ?? 0,
     };
 
@@ -718,6 +722,56 @@ export class SalesService {
             where: { id: activeShift.id },
             data: { expectedCash: newExpected },
           });
+        }
+      }
+
+      // Reverse Loyalty Points if enabled in LoyaltyConfig
+      if (order.customerId) {
+        const loyaltyConfig = await tx.loyaltyConfig.findUnique({
+          where: { storeId },
+        });
+
+        if (
+          loyaltyConfig &&
+          loyaltyConfig.isActive &&
+          loyaltyConfig.reversePointsOnReturn &&
+          loyaltyConfig.spendPerPoint > 0
+        ) {
+          const pointsToReverse = loyaltyConfig.spendPerPoint > 0n ? Number(totalRefundPaisa / loyaltyConfig.spendPerPoint) : 0;
+
+          if (pointsToReverse > 0) {
+            const customer = await tx.customer.findFirst({
+              where: { id: order.customerId, storeId },
+            });
+
+            if (customer) {
+              const updatedPoints = Math.max(0, customer.loyaltyPoints - pointsToReverse);
+              const updatedLifetimeSpend =
+                customer.lifetimeSpend > totalRefundPaisa
+                  ? customer.lifetimeSpend - totalRefundPaisa
+                  : 0n;
+
+              await tx.customer.update({
+                where: { id: customer.id },
+                data: {
+                  loyaltyPoints: updatedPoints,
+                  lifetimeSpend: updatedLifetimeSpend,
+                },
+              });
+
+              await tx.pointsLedger.create({
+                data: {
+                  storeId,
+                  customerId: customer.id,
+                  orderId: order.id,
+                  pointsChange: -pointsToReverse,
+                  type: PointsTransactionType.RETURN_REVERSAL,
+                  title: `Points reversed for return on receipt #${order.receiptNo}`,
+                  description: `Return on receipt #${order.receiptNo}`,
+                },
+              });
+            }
+          }
         }
       }
 

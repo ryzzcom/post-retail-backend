@@ -380,7 +380,14 @@ export class DashboardService {
       bankBalance: paisaToRupees(bankBalancePaisa),
       pettyCash: paisaToRupees(pettyCashPaisa),
       customersOweYou: paisaToRupees(customersOwePaisa),
-      youOweSuppliers: 0, // Extensible supplier bill tracking
+      youOweSuppliers: paisaToRupees(
+        (
+          await this.prisma.supplier.aggregate({
+            where: { storeId },
+            _sum: { currentPayableBalance: true },
+          })
+        )._sum.currentPayableBalance ?? 0n,
+      ),
     };
 
     await this.saveToCache(cacheKey, result);

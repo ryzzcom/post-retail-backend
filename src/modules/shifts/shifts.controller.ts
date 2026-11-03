@@ -5,6 +5,7 @@ import {
   Param,
   Body,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { OpenShiftDto } from './dto/open-shift.dto';
@@ -12,8 +13,14 @@ import { CloseShiftDto } from './dto/close-shift.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { CurrentTenant } from '@core/decorators/current-tenant.decorator';
 import { CurrentUser } from '@core/decorators/current-user.decorator';
+import { Roles } from '@core/decorators/roles.decorator';
+import { JwtAuthGuard } from '@core/guards/jwt-auth.guard';
+import { RolesGuard } from '@core/guards/roles.guard';
+import { Role } from '@prisma/client';
 
 @Controller('api/v1/shifts')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
 export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 

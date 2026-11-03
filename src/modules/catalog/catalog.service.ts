@@ -152,17 +152,18 @@ export class CatalogService {
 
     // Compute Summary Strip Metrics
     let totalUnitsOnHand = 0;
-    let totalValuationCost = 0;
+    let totalValuationPaisa = 0n;
     let lowStockVariantsCount = 0;
 
     for (const v of allActiveVariants) {
       const stock = v.inventory[0]?.quantityOnHand ?? 0;
       totalUnitsOnHand += stock;
-      totalValuationCost += stock * paisaToRupees(v.costPrice);
+      totalValuationPaisa += BigInt(stock) * v.costPrice;
       if (stock <= v.reorderLevel) {
         lowStockVariantsCount++;
       }
     }
+    const totalValuationCost = paisaToRupees(totalValuationPaisa);
 
     // Transform products into parent-child rows
     let items = rawProducts.map((p) => {
@@ -493,6 +494,15 @@ export class CatalogService {
       if (dto.variants && dto.variants.length > 0) {
         for (const vDto of dto.variants) {
           if (vDto.id) {
+            const variantExists = await tx.productVariant.findFirst({
+              where: { id: vDto.id, productId: existing.id, storeId },
+            });
+            if (!variantExists) {
+              throw new BadRequestException(
+                `Variant with ID ${vDto.id} does not belong to product ${existing.id}`,
+              );
+            }
+
             await tx.productVariant.update({
               where: { id: vDto.id },
               data: {
@@ -952,7 +962,7 @@ export class CatalogService {
             });
 
             if (existingVariant) {
-              await tx.productVariant.update({
+            await tx.productVariant.update({
                 where: { id: existingVariant.id },
                 data: {
                   color: color || existingVariant.color,

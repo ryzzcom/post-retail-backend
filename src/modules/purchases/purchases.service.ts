@@ -12,6 +12,7 @@ import { SupplierQueryDto } from './dto/supplier-query.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { RecordSupplierPaymentDto } from './dto/record-supplier-payment.dto';
 import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import { formatDate, formatPktDateTime as formatDateTime, buildDateRangeFilter } from '@core/utils/date-time.util';
 import {
   PaymentMethod,
   PurchasePaymentStatus,
@@ -20,25 +21,6 @@ import {
   StockMovementType,
   SupplierLedgerType,
 } from '@prisma/client';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(date));
-}
-
-function formatDateTime(date: Date): string {
-  const d = new Date(date);
-  const datePart = formatDate(d);
-  const timePart = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).format(d);
-  return `${datePart}, ${timePart}`;
-}
 
 @Injectable()
 export class PurchasesService {
@@ -81,14 +63,9 @@ export class PurchasesService {
       ];
     }
 
-    if (query.startDate || query.endDate) {
-      where.orderDate = {};
-      if (query.startDate) {
-        where.orderDate.gte = new Date(query.startDate);
-      }
-      if (query.endDate) {
-        where.orderDate.lte = new Date(query.endDate);
-      }
+    const dateFilter = buildDateRangeFilter(query.startDate, query.endDate);
+    if (dateFilter) {
+      where.orderDate = dateFilter;
     }
 
     const [

@@ -10,6 +10,7 @@ import { StockLedgerQueryDto } from './dto/stock-ledger-query.dto';
 import { LabelsPreviewDto } from './dto/labels-preview.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
 import { paisaToRupees } from '@core/utils/currency-paisa.util';
+import { buildDateRangeFilter } from '@core/utils/date-time.util';
 import { StockMovementType } from '@prisma/client';
 
 @Injectable()
@@ -321,14 +322,9 @@ export class InventoryService {
       };
     }
 
-    if (query.startDate || query.endDate) {
-      where.createdAt = {};
-      if (query.startDate) {
-        where.createdAt.gte = new Date(query.startDate);
-      }
-      if (query.endDate) {
-        where.createdAt.lte = new Date(query.endDate);
-      }
+    const dateFilter = buildDateRangeFilter(query.startDate, query.endDate);
+    if (dateFilter) {
+      where.createdAt = dateFilter;
     }
 
     const [total, items] = await Promise.all([

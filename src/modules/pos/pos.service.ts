@@ -4,17 +4,40 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
+import { SalesService } from '@modules/sales/sales.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { HoldBillDto } from './dto/hold-bill.dto';
 import { ReturnOrderDto } from './dto/return-order.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
-import { rupeesToPaisa } from '@core/utils/currency-paisa.util';
-import { HeldBillStatus, OrderStatus } from '@prisma/client';
+import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import {
+  CustomerTier,
+  HeldBillStatus,
+  KhataTransactionType,
+  OrderStatus,
+  PaymentMethod,
+  PointsTransactionType,
+  ShiftStatus,
+  StockMovementType,
+} from '@prisma/client';
 
 @Injectable()
 export class PosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly salesService: SalesService,
+  ) {}
 
+  /**
+   * Complete POS Checkout Pipeline
+   * - Enforces Product.minSellingPrice
+   * - Checks and decrements stock with StockMovement (SALE)
+   * - Increments Coupon usage & discount given
+   * - Updates Customer lifetimeSpend, lastVisitAt, auto-upgrades Tier, awards Loyalty Points with PointsLedger
+   * - Checks Customer creditLimit, increments currentKhataBalance, appends KhataLedger (DEBIT_PURCHASE)
+   * - Increments CashierShift.expectedCash for Cash tenders
+   * - Creates AuditLog entry
+   */
   async checkout(
     storeId: string,
     cashierId: string,
@@ -23,6 +46,52 @@ export class PosService {
   ) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Checkout requires at least one order item');
+    }
+
+    // 1. Validate variants, floor prices, and stock availability before writing
+    const variantIds = dto.items.map((i) => i.variantId);
+    const variants = await this.prisma.productVariant.findMany({
+      where: { id: { in: variantIds }, storeId },
+      include: {
+        product: true,
+        inventory: { where: { storeId } },
+      },
+    });
+
+    const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+    for (const item of dto.items) {
+      const variant = variantMap.get(item.variantId);
+      if (!variant) {
+        throw new BadRequestException(
+          `Variant with ID ${item.variantId} not found in this store`,
+        );
+      }
+
+      // Check minSellingPrice floor
+      const unitPricePaisa = rupeesToPaisa(item.unitPrice);
+      const discountPaisa = item.discount ? rupeesToPaisa(item.discount) : 0n;
+      const netUnitPricePaisa = unitPricePaisa - (discountPaisa / BigInt(item.quantity));
+
+      if (
+        variant.product.minSellingPrice > 0n &&
+        netUnitPricePaisa < variant.product.minSellingPrice
+      ) {
+        throw new BadRequestException(
+          `Item "${variant.product.name}" (${variant.sku}) cannot be sold below floor price Rs. ${paisaToRupees(
+            variant.product.minSellingPrice,
+          )}`,
+        );
+      }
+
+      // Check stock availability
+      const currentInv = variant.inventory?.[0];
+      const currentStock = currentInv?.quantityOnHand ?? 0;
+      if (currentStock < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for "${variant.product.name}" (${variant.sku}). Available: ${currentStock}, Requested: ${item.quantity}`,
+        );
+      }
     }
 
     // Calculate subtotal, discounts, and grandTotal in integer minor units (paisas)
@@ -55,6 +124,7 @@ export class PosService {
     )}`;
 
     return this.prisma.$transaction(async (tx) => {
+      // 2. Create Order & Items & Payments
       const order = await tx.order.create({
         data: {
           storeId,
@@ -87,8 +157,13 @@ export class PosService {
         },
       });
 
-      // Deduct inventory quantities from store inventory
+      // 3. Deduct inventory quantities and record StockMovement (SALE)
       for (const item of dto.items) {
+        const variant = variantMap.get(item.variantId)!;
+        const currentInv = variant.inventory?.[0];
+        const previousQty = currentInv?.quantityOnHand ?? 0;
+        const newQty = previousQty - item.quantity;
+
         await tx.storeInventory.updateMany({
           where: {
             storeId,
@@ -100,7 +175,197 @@ export class PosService {
             },
           },
         });
+
+        await tx.stockMovement.create({
+          data: {
+            storeId,
+            variantId: item.variantId,
+            type: StockMovementType.SALE,
+            quantity: item.quantity,
+            previousQty,
+            newQty,
+            referenceNo: receiptNo,
+            performedByUserId: cashierId,
+            reason: `POS Checkout #${receiptNo}`,
+          },
+        });
       }
+
+      // 4. Coupon Usage Tracking
+      if (dto.couponCode) {
+        const coupon = await tx.coupon.findFirst({
+          where: { storeId, code: dto.couponCode.toUpperCase().trim() },
+        });
+        if (coupon) {
+          await tx.coupon.update({
+            where: { id: coupon.id },
+            data: {
+              usedCount: { increment: 1 },
+              totalDiscountGiven: { increment: orderDiscountPaisa },
+            },
+          });
+        }
+      }
+
+      // 5. Customer Spend, Loyalty Points & Auto Tier Upgrade
+      if (dto.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: dto.customerId, storeId },
+        });
+
+        if (customer) {
+          const loyaltyConfig = await tx.loyaltyConfig.findUnique({
+            where: { storeId },
+          });
+
+          let pointsEarned = 0;
+          if (
+            loyaltyConfig &&
+            loyaltyConfig.isActive &&
+            loyaltyConfig.spendPerPoint > 0
+          ) {
+            pointsEarned = loyaltyConfig.spendPerPoint > 0n ? Number(grandTotalPaisa / loyaltyConfig.spendPerPoint) : 0;
+          }
+
+          if (pointsEarned > 0) {
+            await tx.pointsLedger.create({
+              data: {
+                storeId,
+                customerId: customer.id,
+                orderId: order.id,
+                pointsChange: pointsEarned,
+                type: PointsTransactionType.EARNED,
+                title: `Earned on receipt #${receiptNo}`,
+                description: `POS sale #${receiptNo}`,
+              },
+            });
+          }
+
+          const newLifetimeSpend = customer.lifetimeSpend + grandTotalPaisa;
+          let newTier = customer.tier;
+          if (loyaltyConfig) {
+            if (newLifetimeSpend >= loyaltyConfig.goldTierThreshold) {
+              newTier = CustomerTier.GOLD;
+            } else if (
+              newLifetimeSpend >= loyaltyConfig.silverTierThreshold &&
+              newTier !== CustomerTier.GOLD
+            ) {
+              newTier = CustomerTier.SILVER;
+            }
+          }
+
+          await tx.customer.update({
+            where: { id: customer.id },
+            data: {
+              lifetimeSpend: newLifetimeSpend,
+              loyaltyPoints: { increment: pointsEarned },
+              lastVisitAt: new Date(),
+              tier: newTier,
+            },
+          });
+        }
+      }
+
+      // 6. Khata Payment Handling & Ledger
+      const khataPayments = dto.payments.filter(
+        (p) => p.method === PaymentMethod.KHATA,
+      );
+      if (khataPayments.length > 0) {
+        if (!dto.customerId) {
+          throw new BadRequestException(
+            'Customer profile is mandatory for Khata (credit) payment',
+          );
+        }
+
+        const customer = await tx.customer.findFirst({
+          where: { id: dto.customerId, storeId },
+        });
+
+        if (!customer) {
+          throw new BadRequestException(`Customer ${dto.customerId} not found`);
+        }
+
+        const totalKhataPaisa = khataPayments.reduce(
+          (acc, p) => acc + rupeesToPaisa(p.amount),
+          0n,
+        );
+
+        const newKhataBalance = customer.currentKhataBalance + totalKhataPaisa;
+        if (newKhataBalance > customer.creditLimit) {
+          throw new BadRequestException(
+            `Customer credit limit exceeded! Available credit: Rs. ${paisaToRupees(
+              customer.creditLimit - customer.currentKhataBalance,
+            )}, Requested Khata: Rs. ${paisaToRupees(totalKhataPaisa)}`,
+          );
+        }
+
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { currentKhataBalance: newKhataBalance },
+        });
+
+        await tx.khataLedger.create({
+          data: {
+            storeId,
+            customerId: customer.id,
+            orderId: order.id,
+            type: KhataTransactionType.DEBIT_PURCHASE,
+            amount: totalKhataPaisa,
+            runningBalance: newKhataBalance,
+            referenceNo: receiptNo,
+            notes: `POS Purchase receipt #${receiptNo}`,
+          },
+        });
+      }
+
+      // 7. Cash Drawer Shift Expected Cash Handling
+      const cashPayments = dto.payments.filter(
+        (p) => p.method === PaymentMethod.CASH,
+      );
+      if (cashPayments.length > 0) {
+        const totalCashPaisa = cashPayments.reduce(
+          (acc, p) => acc + rupeesToPaisa(p.amount),
+          0n,
+        );
+
+        let shift = null;
+        if (dto.shiftId) {
+          shift = await tx.cashierShift.findFirst({
+            where: { id: dto.shiftId, storeId, status: ShiftStatus.OPEN },
+          });
+        } else {
+          shift = await tx.cashierShift.findFirst({
+            where: { cashierId, storeId, status: ShiftStatus.OPEN },
+            orderBy: { openedAt: 'desc' },
+          });
+        }
+
+        if (shift) {
+          await tx.cashierShift.update({
+            where: { id: shift.id },
+            data: {
+              expectedCash: { increment: totalCashPaisa },
+            },
+          });
+        }
+      }
+
+      // 8. Audit Log Entry
+      await tx.auditLog.create({
+        data: {
+          storeId,
+          userId: cashierId,
+          action: 'ORDER_CREATED',
+          entity: 'Order',
+          entityId: order.id,
+          details: {
+            receiptNo,
+            itemsCount: dto.items.length,
+            grandTotal: paisaToRupees(grandTotalPaisa),
+            paymentMethods: dto.payments.map((p) => p.method),
+          },
+        },
+      });
 
       return order;
     });
@@ -140,11 +405,15 @@ export class PosService {
     }
 
     return this.prisma.heldBill.update({
-      where: { id },
+      where: { id: heldBill.id },
       data: { status: HeldBillStatus.RESUMED },
     });
   }
 
+  /**
+   * Consolidate POS return through SalesService for complete stock,
+   * financial settlement, audit log & loyalty points reversal handling.
+   */
   async returnOrder(storeId: string, cashierId: string, dto: ReturnOrderDto) {
     const originalOrder = await this.prisma.order.findFirst({
       where: { id: dto.originalOrderId, storeId },
@@ -155,78 +424,38 @@ export class PosService {
       throw new NotFoundException(`Order ${dto.originalOrderId} not found`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: dto.originalOrderId },
-        data: {
-          status: OrderStatus.REFUNDED,
-          notes: `Refunded: ${dto.reason}`,
-        },
-      });
-
-      // Restock returned items in store inventory
-      for (const item of dto.items) {
-        const orderItem = originalOrder.items.find((i) => i.id === item.orderItemId);
-        if (orderItem) {
-          await tx.storeInventory.updateMany({
-            where: {
-              storeId,
-              variantId: orderItem.variantId,
-            },
-            data: {
-              quantityOnHand: { increment: item.quantity },
-            },
-          });
-        }
+    const saleReturnItems = dto.items.map((item) => {
+      const orderItem = originalOrder.items.find((i) => i.id === item.orderItemId);
+      if (!orderItem) {
+        throw new BadRequestException(
+          `Order item ${item.orderItemId} does not belong to order ${dto.originalOrderId}`,
+        );
       }
-
-      return updatedOrder;
+      return {
+        orderItemId: item.orderItemId,
+        variantId: orderItem.variantId,
+        quantity: item.quantity,
+        condition: 'RESELLABLE' as const,
+      };
     });
+
+    return this.salesService.processSaleReturn(
+      storeId,
+      originalOrder.receiptNo,
+      cashierId,
+      {
+        items: saleReturnItems,
+        reason: dto.reason,
+        settlementMethod: 'CASH',
+      },
+    );
   }
 
   async getOrderById(storeId: string, orderId: string) {
-    const order = await this.prisma.order.findFirst({
-      where: { id: orderId, storeId },
-      include: {
-        items: { include: { variant: true } },
-        payments: true,
-        customer: true,
-      },
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
-    }
-
-    return order;
+    return this.salesService.getReceiptDetail(storeId, orderId);
   }
 
   async listOrders(storeId: string, query: PaginationQueryDto) {
-    const where = { storeId };
-
-    const [total, items] = await Promise.all([
-      this.prisma.order.count({ where }),
-      this.prisma.order.findMany({
-        where,
-        include: {
-          items: true,
-          payments: true,
-          customer: true,
-        },
-        skip: query.skip,
-        take: query.limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-
-    return {
-      data: items,
-      meta: {
-        page: query.page,
-        limit: query.limit,
-        total,
-        totalPages: Math.ceil(total / query.limit),
-      },
-    };
+    return this.salesService.getSalesHistory(storeId, query as any);
   }
 }

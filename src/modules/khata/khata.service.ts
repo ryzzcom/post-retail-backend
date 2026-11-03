@@ -7,7 +7,7 @@ import { PrismaService } from '@database/prisma.service';
 import { RecordKhataPaymentDto } from './dto/record-khata-payment.dto';
 import { AdjustCreditLimitDto } from './dto/adjust-credit-limit.dto';
 import { PaginationQueryDto } from '@core/dto/pagination-query.dto';
-import { rupeesToPaisa } from '@core/utils/currency-paisa.util';
+import { paisaToRupees, rupeesToPaisa } from '@core/utils/currency-paisa.util';
 import { KhataTransactionType } from '@prisma/client';
 
 @Injectable()
@@ -66,12 +66,28 @@ export class KhataService {
 
     const newLimitPaisa = rupeesToPaisa(dto.newCreditLimit);
 
-    return this.prisma.customer.update({
-      where: { id: dto.customerId },
+    const updated = await this.prisma.customer.update({
+      where: { id: customer.id },
       data: {
         creditLimit: newLimitPaisa,
       },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        storeId,
+        action: 'CUSTOMER_CREDIT_LIMIT_UPDATED',
+        entity: 'Customer',
+        entityId: customer.id,
+        details: {
+          previousLimitRupees: paisaToRupees(customer.creditLimit),
+          newLimitRupees: dto.newCreditLimit,
+          reason: dto.reason || 'Credit limit adjustment',
+        },
+      },
+    });
+
+    return updated;
   }
 
   async getCustomerLedger(
